@@ -84,6 +84,9 @@ def configure_logging() -> logging.Logger:
     root.handlers.clear()
     root.addHandler(handler)
     root.setLevel(logging.INFO)
+    # httpx logs every request URL at INFO. Graph URLs can carry secrets, so keep those libraries at WARNING.
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     return logging.getLogger("homeadengine")
 
 
@@ -396,11 +399,12 @@ async def auth_callback(payload: AuthCallbackRequest) -> dict[str, Any]:
     and stores everything with an upsert keyed on the Facebook user id."""
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as http:
         try:
+            # POST keeps the app secret and the login token out of the request URL.
             exchanged = await graph_call(
                 http,
-                "GET",
+                "POST",
                 "oauth/access_token",
-                params={
+                data={
                     "grant_type": "fb_exchange_token",
                     "client_id": META_APP_ID,
                     "client_secret": META_APP_SECRET,
