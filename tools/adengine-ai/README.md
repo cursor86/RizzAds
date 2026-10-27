@@ -92,3 +92,32 @@ Hook and hold rates are only applied to Meta video ads. Google's report does not
 - **Advantage+ Shopping.** The engine launches a CBO conversions campaign with Advantage+ audience on the ad set. Full ASC campaign types are not created here.
 - **Custom segment type.** Keyword custom segments are created through `CustomAudienceService`, not `UserListService`. The `UserListService` covers remarketing lists, not keyword segments.
 - **Angle attribution on Meta.** Each angle is one ad. Attribution is per ad, not per text element inside Meta's dynamic creative.
+
+## Organic publishing (Instagram and Facebook Reels)
+
+`app/organic/` connects a client's Facebook Page and linked Instagram Business account, then publishes vertical
+video Reels organically to both.
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /brands/{id}/organic/connect` | Exchanges the short-lived Facebook Login token for a 60-day token, checks the required permissions, and lists Pages and Instagram accounts. No tokens are returned. |
+| `POST /brands/{id}/organic/page` | Selects a Page. Its token is fetched and stored encrypted, and blocked jobs are requeued. |
+| `GET /brands/{id}/organic/status` | Live check with Meta. Marks invalid tokens and blocks the queue. |
+| `POST /brands/{id}/organic/reels` | Queues a Reel (`video_url` must be public https). Returns 409 with reasons if the credential or Page is not usable, and queues nothing. |
+| `GET /organic/jobs/{id}` | Job state, Instagram container and media IDs, and the last error. |
+| `DELETE /brands/{id}/organic/connection` | Revokes the grant with Meta and deletes the stored tokens. |
+
+Setup: set `META_APP_ID`, `META_APP_SECRET`, and `ENCRYPTION_KEY` (a Fernet key). Run
+`python -m app.organic.worker` for the publishing loop (every 30 seconds) and the daily token sweep.
+
+Behavior:
+- **Tokens at rest.** `fb_user_access_token` and `fb_page_access_token` use `EncryptedText`. A wrong key raises an error instead of returning garbage.
+- **Queue blocking.** A job never starts while its credential is revoked, expired, or within the safety margin of expiry. Blocked jobs show the reason. Reconnecting requeues them.
+- **Error handling.** Code 190 (invalid or expired token) and codes 10, 200, and 299 (permission revoked) block the client's queue and write a `credential_events` row with the Graph code, subcode, and fbtrace_id. Tokens are never logged. Rate limits and transient errors retry with backoff, up to `ORGANIC_MAX_ATTEMPTS`.
+- **Instagram.** Create the container, poll it with exponential backoff (5 s doubling, capped at 60 s, with jitter) until `FINISHED`, then publish. Processing errors are permanent. Timeouts retry.
+- **Facebook.** Start the upload, send the hosted URL to the rupload endpoint (Meta fetches the file), finish, then poll until publishing is complete. Binary chunk upload is not implemented, so the video must be hosted at a public URL.
+
+Known gaps:
+- Graph API `v19.0` is the version you specified. It's configurable with `ORGANIC_API_VERSION`, but check Meta's current version before production.
+- Video processing field names (`publishing_phase`, `video_status`) and the `video_reels` finish parameters need a live test against a sandbox Page.
+- Instagram publishing uses the Page access token. Confirm the client's app review grants `instagram_content_publish` before onboarding.

@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import hmac
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
@@ -33,6 +32,10 @@ from app.models import (
 )
 from app.services.deploy_google import GoogleLaunchSpec, launch_google_campaign
 from app.services.deploy_meta import MetaLaunchSpec, launch_meta_campaign
+from app.organic import models as organic_models  # noqa: F401  registers organic tables on Base
+from app.organic.api import jobs_router as organic_jobs_router
+from app.organic.api import router as organic_router
+from app.security import require_api_key
 from app.services.iteration import process_pending_iterations
 from app.services.optimization_loop import run_optimization_cycle
 
@@ -46,6 +49,8 @@ async def _lifespan(_: FastAPI):
 
 
 app = FastAPI(title="AdEngine-AI", version="0.1.0", lifespan=_lifespan)
+app.include_router(organic_router)
+app.include_router(organic_jobs_router)
 
 
 @app.exception_handler(DeployValidationError)
@@ -61,11 +66,6 @@ async def _external_handler(_: Request, exc: ExternalAPIError) -> JSONResponse:
 @app.exception_handler(AdEngineError)
 async def _engine_handler(_: Request, exc: AdEngineError) -> JSONResponse:
     return JSONResponse(status_code=500, content={"error": "internal", "detail": str(exc)})
-
-
-def require_api_key(x_api_key: str = Header(default="")) -> None:
-    if not hmac.compare_digest(x_api_key.encode(), get_settings().api_key.encode()):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid API key")
 
 
 AuthDep = Depends(require_api_key)

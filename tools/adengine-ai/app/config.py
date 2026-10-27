@@ -18,6 +18,17 @@ class Settings(BaseSettings):
     google_client_secret: str = ""
     google_login_customer_id: str = ""
 
+    # Organic publishing (Instagram Reels and Facebook Reels). Used by app/organic/.
+    meta_app_id: str = ""
+    meta_app_secret: str = ""
+    organic_api_version: str = "v19.0"
+    # Fernet key for encrypting client tokens at rest. Generate with cryptography.fernet.Fernet.generate_key().
+    encryption_key: str = ""
+    organic_poll_max_seconds: int = 900
+    organic_max_attempts: int = 3
+    token_refresh_days_before_expiry: int = 7
+    token_expiry_margin_hours: int = 1
+
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-5-5"
 
